@@ -52,5 +52,3 @@ def findtweets(query):
 for i in ticklist:
     findtweets(i)
 
-print(scoredict)
-print(ticklist)
