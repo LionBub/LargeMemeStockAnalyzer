@@ -1,5 +1,7 @@
 import praw
+import json
 import stock
+from stocksymbol import StockSymbol
 
 with open('pw.txt', 'r') as f:
     pw = f.read()
@@ -9,17 +11,40 @@ reddit = praw.Reddit(client_id='jwVLKWRrd3Rw9eCSojJz4w',
                      password=pw,
                      user_agent='prawstitute_v0.1')
 subreddit = reddit.subreddit('wallstreetbets')
+hot_python = subreddit.hot(limit=200)
 
-hot_python = subreddit.hot(limit=400)
+stocksDict = json.load(open("StocksList.json", "r"))
+stockObjectsList = []
+for e in stocksDict:
+    stockObjectsList.append(stock.Stock(symbol=e["symbol"],
+                                        shortName=e["shortName"],
+                                        longName=e["longName"],
+                                        exchange=e["exchange"],
+                                        market=e["market"],
+                                        mentions=e["mentions"]
+                                        ))
 
-knownErrors = {'A','ABOARD', 'BACK', 'BOYS', 'CALLS', 'CEO', 'CNBC', 'DIE', 'EU', 'G', 'GOING', 'HODL', 'HOW', 'I', 'J',
-               'MARCH', 'MONEY', 'MOOOON', 'N', 'P', 'POV', 'REPOST', 'RIP', 'SEMI', 'STONKS', 'SWIFT', 'THIS', 'U',
-               'US', 'WSB', 'WSJ', 'WWIII', 'YOLO', '$'}
+
+def clearStockJSON():
+    ss_api_key = '623adca4-396e-4229-b867-f88fca59eba5'
+    ss = StockSymbol(ss_api_key)
+    symbol_list_us = ss.get_symbol_list(market="US")
+
+    newStocksDict = symbol_list_us.copy()  # unnecessary
+    for stk in newStocksDict:
+        stk["mentions"] = 0
+    json.dump(newStocksDict, open("StocksList.json", "w"))
+    return newStocksDict  # Dict is the python interpretation of the JSON. The mailman
 
 
-# YOLO, A and I are companies but were marked as error due to overuse
+def updateStockJSON():
+    newStocksDict = []
+    for obj in stockObjectsList:
+        newStocksDict.append(obj.__dict__)
+    json.dump(newStocksDict, open("StocksList.json", "w"))
 
-def findStocks():
+
+def findMentionsInSubmissions():
     capsList = []
     postIndex = -1
     for submission in hot_python:  # make array of all upper case sequences
@@ -29,23 +54,22 @@ def findStocks():
         while charIndex < len(submission.title):
             charIndex += 1
             char = submission.title[charIndex: charIndex + 1]
-            if char.isupper() or char == '$':
+            if char.isupper():
                 lastChar = submission.title[charIndex - 1: charIndex]
-                if lastChar.isupper() or lastChar == '$':
+                if lastChar.isupper():
                     capsList[len(capsList) - 1] += char  # concats to exisitng item
                 else:
                     nextChar = submission.title[charIndex + 1: charIndex + 2]
                     if not nextChar.islower():  # eliminates capitals at start of words
                         capsList.append(char)  # adds a new item
-    print(f'{postIndex + 1} posts searched')
 
-    suspectedStocksList = [s for s in capsList if len(s) <= 6]
-    suspectedStocksSet = set(suspectedStocksList)
-    suspectedStocksSet = suspectedStocksSet - knownErrors
+    suspectedStocksList = [s for s in capsList if len(s) <= 5]
+    stocksSet = set(suspectedStocksList)  # converts list to set, eliminating duplicates
+    stocksSet = stocksSet.intersection()
     # counts and creates numMentions list
-    numMentions = [0 for e in suspectedStocksSet]
+    numMentions = [0 for e in stocksSet]
     setIndex = -1
-    for si in suspectedStocksSet:
+    for si in stocksSet:
         setIndex += 1
         for li in suspectedStocksList:
             if si == li:
@@ -54,13 +78,24 @@ def findStocks():
     # creates stock objects
     stockObjects = []
     setIndex = -1  # might be bad practice reusing this variable
-    for name in suspectedStocksSet:
+    for name in stocksSet:
         setIndex += 1
-        stockObjects.append(stock.Stock(name, numMentions[setIndex]))
-    return stockObjects
+        for stockFromObjList in stockObjectsList:
+            if name == stockFromObjList.symbol:
+                stockFromObjList.addMention(numMentions[setIndex])
+
+    return stockObjectsList
 
 
-for e in findStocks():
-    if e.mentions > 1:
-        print(str(e))
-        # TO DO: order from greatest to least used
+def InsertionSortStocksList(refList):
+    objlist = refList.copy()
+    for i in range(1, len(objlist)):
+
+        key = objlist[i]
+        # Move elements of arr[0..i-1], that are greater than key, to one position ahead of their current position
+        j = i - 1
+        while j >= 0 and key.mentions < objlist[j].mentions:
+            objlist[j + 1] = objlist[j]
+            j -= 1
+        objlist[j + 1] = key
+    return objlist
